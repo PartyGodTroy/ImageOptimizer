@@ -2,58 +2,100 @@ import { SyntheticEvent, useEffect, useRef, useState } from 'react'
 import logo from './logo.svg'
 import './App.css'
 import { formatBytes } from './util';
-import { Call } from "wasm-imagemagick";
+import { Call, MagickInputFile, MagickOutputFile } from "wasm-imagemagick";
+import * as magick_cmd from './MagickCommands';
 
 
+const inputFormats = "*.png, *.jpeg, *.jpg, *.webp, *.tiff, *.bmp";
+const outputFormats = [
+  { name: 'PNG' },
+  { name: 'JPG' },
+  { name: 'WEBP' },
+  { name: 'TIFF' },
+  { name: 'BMP' },
+
+]
+
+type WorkingFile = {
+
+  magick_input?: MagickInputFile;
+  src?: string;
+  name?: string;
+  type?: string;
+
+  size?: number;
+  size_text?: string;
+
+  width?: number;
+  height?: number;
+  loaded?: boolean;
+
+  magick_output?: MagickOutputFile;
+  preview_src?: string;
+  preview_name?: string;
+  preview_type?: string;
+  preview_size?: number;
+  preview_size_text?: string;
+
+  preview_width?: number;
+  preview_height?: number;
+  preview_loaded?: boolean;
+
+}
+
+type OptimizeImageSettings = {
+
+}
+
+class AppState {
+  workingFile: WorkingFile = {};
+  settings: OptimizeImageSettings = {}
+}
 
 function App() {
+
+  const initialState: AppState = new AppState();
+  const [state, setState] = useState(initialState);
+
   const inputImageRef = useRef<HTMLImageElement>(null);
-
   const previewImageRef = useRef<HTMLImageElement>(null);
-
-
-  const [state, setState] = useState({
-    inputImageSrc: '',
-    inputLoaded: false,
-    inputSize: '',
-    inputWidth: 0,
-    inputHeight: 0,
-    inputImageName: '',
-    inputImageType: '',
-    previewImageSrc: '',
-  })
 
   // On New Data
   useEffect(() => {
-    if (state.inputImageSrc.length == 0 || !state.inputLoaded) return;
-    const inputImage = inputImageRef.current
-
-    if( !inputImage ) return ;
-
-    setState({ ...state, inputWidth:inputImage.width, inputHeight:inputImage.height})
-
+    // No input Loaded
   });
 
 
+  async function processImage(e: SyntheticEvent) {
+
+  }
   async function handleInputImageUpload(e: SyntheticEvent) {
     // @ts-ignore
-    const file: File = e.target.files[0];
-    const buffer = await file?.arrayBuffer()
-    const content = new Uint8Array(buffer);
-    const inputLoaded = true;
+    const img_file: File = e.target.files[0];
+    const img_buff = await img_file?.arrayBuffer();
+    const content = new Uint8Array(img_buff);
+    const src = URL.createObjectURL(new Blob([img_buff]));
+    const magick_input: MagickInputFile = { name: img_file.name, content };
 
-    const inputSize = formatBytes(content.length);
-    const inputImageName = file.name;
-    const inputImageType = file.type;
+    const inputIdentify = await magick_cmd.Identify([magick_input]);
 
-    const image = { name: file.name, content};
+    if (!inputIdentify.error) {
+      const { size_text, width, height } = inputIdentify;
+      const workingFile: WorkingFile = {
+        src,
+        width,
+        height,
+        size_text,
+        loaded: true,
+        magick_input,
 
-    const command = ["convert", file.name, '-resize', '100%', 'out.png']
-    const result = await Call([image], command)
-    const inputImage = result[0];
-    const inputImageSrc = URL.createObjectURL(inputImage.blob)//'data:image/png;base64,' + encode(bytes);
+        preview_src: src,
+      }
+      setState({ ...state, workingFile });
+    } else {
+      console.error("WOW")
+    }
 
-    setState({ ...state, inputImageSrc, inputLoaded, inputSize, inputImageName, inputImageType });
   }
 
   return (
@@ -68,70 +110,54 @@ function App() {
           <input type='checkbox' name='Keep File Type' />
         </label>
         <label htmlFor="Input File">
-          <input name='Input File' onChange={async (e: any) => await handleInputImageUpload(e)} type='file'  accept="image/*" />
+          <input name='Input File' onChange={async (e: any) => await handleInputImageUpload(e)} type='file' accept="image/*" />
         </label>
-        <button>Optimize</button>
+        <button onClick={(e) => processImage(e)}>Optimize</button>
       </form>
       <div style={{ display: 'flex' }}>
         <div style={{ width: '50%' }}>
           <h3>Before</h3>
-          <img
-            ref={inputImageRef}
-            alt='Source Image'
-            style={{ width: '100%' }}
-            src={state.inputImageSrc.length == 0 ? '' : state.inputImageSrc} 
-          />
+          {state.workingFile.src &&
+            <img
+              ref={inputImageRef}
+              alt='Source Image'
+              style={{ width: '100%' }}
+              src={state.workingFile.src}
+            />
+          }
           <ul>
             <li>
-              File Format: {state.inputImageType}
+              File Format: {state.workingFile.type}
             </li>
             <li>
-              Dimensions: {state.inputWidth} x {state.inputHeight}
+              Dimensions: {state.workingFile.width ?? ""} x {state.workingFile.height ?? ""}
             </li>
             <li>
-              Size: {state.inputSize}
+              Size: {state.workingFile.size_text ?? ""}
             </li>
           </ul>
         </div>
         <div style={{ width: '50%' }}>
           <h3>After</h3>
-          <img
-            ref={previewImageRef}
-            alt='Source Image'
-            style={{ width: '100%'}}
-            src={state.previewImageSrc.length == 0 ? '' : state.previewImageSrc} />
-          <form onSubmit={(e) => e.preventDefault()}>
-            <ul>
-              <li>
-                <label htmlFor='Preview File Format'>
-                  <span>
-                    File Format:
-                  </span>
-                  <select name='Preview File Format'>
-                    <option value='jpg'>JPG</option>
-                    <option value='png'>PNG</option>
-                    <option value='webp'>WEBP</option>
-
-                  </select>
-                </label>
-              </li>
-              <li>
-                <span>
-                  Dimensions:
-                </span>
-                <label htmlFor='Preview Width'>
-                  <input defaultValue={state.inputWidth} type="number" name="Preview Width"  />
-                </label>
-                <label htmlFor='Preview Height'>
-                  <input defaultValue={state.inputHeight} type="number" name="Preview Height"  />
-                </label>
-              </li>
-              <li>
-                Size: 
-              </li>
-            </ul>
-          </form>
-
+          {state.workingFile.preview_loaded &&
+            <img
+              ref={previewImageRef}
+              alt='Preview Image'
+              style={{ width: '100%' }}
+              src={state.workingFile.preview_src}
+            />
+          }
+          <ul>
+            <li>
+              File Format: {state.workingFile.preview_type}
+            </li>
+            <li>
+              Dimensions: {state.workingFile.preview_width ?? ""} x {state.workingFile.preview_height ?? ""}
+            </li>
+            <li>
+              Size: {state.workingFile.preview_size ?? ""}
+            </li>
+          </ul>
         </div>
       </div>
     </div>
